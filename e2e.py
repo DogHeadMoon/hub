@@ -42,7 +42,7 @@ def concat_parts(paths, dic, boundaries):
   for i,path in enumerate(paths):
     if path in dic.keys():
       part_rt = dic[path] 
-      if len(part_rt) > 2 :
+      if len(part_rt) > 1 :
         val_texts.append(part_rt)
         val_boundaries.append(boundaries[i])
     else:
