@@ -35,6 +35,8 @@ app = Flask(__name__)
 url='localhost:8001'
 id=1
 
+PERIOD_THRS=0.4 #second
+
 def concat_parts(paths, dic, boundaries):
   val_texts = []
   val_boundaries = []
@@ -48,6 +50,42 @@ def concat_parts(paths, dic, boundaries):
     else:
       app.logger.error('error : {} not in result keys'.format(path))
   return val_texts, val_boundaries
+
+def filter_nonsense(texts):
+  nonsense=['嗯', '呀', '哦','呃']
+  rt = []
+  for text in texts:
+    for word in nonsense:
+      if word in text:
+        text = text.replace(word, '')
+    rt.append(text)
+  return rt
+
+def filt(texts, boundaries):
+  min_nchars = 2
+  n=min(len(texts),len(boundaries))
+  puncs=[]
+  val_texts = []
+  val_boundaries = []
+  for i in range(n):
+    nchars = len(texts[i])
+    if nchars>=min_nchars:
+      val_texts.append(texts[i])
+      val_boundaries.append(boundaries[i])
+  
+  n=len(val_texts)
+  
+  for i in range(n):
+    if i<n-1:
+      post = boundaries[i+1][0] - boundaries[i][1]
+      if post>PERIOD_THRS:
+        puncs.append('。')
+      else:
+        puncs.append('，')
+    elif i == n-1:
+      puncs.append('。')
+  return texts, boundaries, puncs
+
 
 def single_job(client_files):
     rt = {}
@@ -93,6 +131,7 @@ def get_end_msg():
   return msg
 
 async def post_cpu(pcm, name, custom_words):
+  text=''
   try:
     async with websockets.connect('ws://localhost:10089') as websocket:
         await websocket.send(get_st_msg(custom_words))
@@ -103,9 +142,8 @@ async def post_cpu(pcm, name, custom_words):
             await websocket.send(pcm)
             await websocket.send(get_end_msg())
             rt = await websocket.recv()
-            print("name : {}, rt : {}".format(name, rt))
+            #print("name : {}, rt : {}".format(name, rt))
             final = json.loads(rt)
-            print("after final")
             text = final['nbest']
             if websocket.open:
               await websocket.close()
@@ -119,7 +157,7 @@ def post_multi_cpu(name, pcms, custom_words, boundaries):
   loop1 = asyncio.new_event_loop()
   asyncio.set_event_loop(loop1)
   loop = asyncio.get_event_loop()
-  batch=100
+  batch=200
   nfulls = n//batch
   nresidue = n%batch
   names = []
@@ -130,15 +168,13 @@ def post_multi_cpu(name, pcms, custom_words, boundaries):
   if nfulls:
     for i in range(nfulls):
       tasks = []
-      for j in batch:
-        new_name = "{}-{}".foramt(name, i*batch + j)
+      for j in range(batch):
+        new_name = "{}-{}".format(name, i*batch + j)
         names.append(new_name)
-        tasks.append(post_cpu(pcms[i*batch + j], new_name))
+        tasks.append(post_cpu(pcms[i*batch + j], new_name, custom_words))
       done, pending = loop.run_until_complete(asyncio.wait(tasks, timeout=100))
-      print("done", done)
       for fut in done:
         items = fut.result()
-        print(items)
         if len(items) == 2:
           key = items[0]
           text = items[1]
@@ -150,10 +186,10 @@ def post_multi_cpu(name, pcms, custom_words, boundaries):
       names.append(new_name)
       tasks.append(post_cpu(pcms[nfulls*batch + j], new_name, custom_words))
     done, pending = loop.run_until_complete(asyncio.wait(tasks, timeout=100))
-    print("done", done)
+    #print("done", done)
     for fut in done:
       items = fut.result()
-      print(items)
+      #print(items)
       if len(items) == 2:
         key = items[0]
         text = items[1]
@@ -177,18 +213,26 @@ def get_timestamps_json(texts, boundaries):
   return segs
   
 
-@app.route('/', methods=['GET', 'POST'])
+#@app.route('/', methods=['GET', 'POST'])
+@app.route('/', methods=['POST'])
 def process():
+    name=''
     rt = ''
     timestamps = []
+    texts = []
     #app.logger.info('request method : {}'.format(request.method))
     if request.method == 'POST':
       if request.is_json:
+        header = request.headers
+        print("header : ")
+        print(header)
+
         json_data = request.json
         base64_msg = json_data['audioBase64']
         audio_bytes = base64.b64decode(base64_msg)
         aue = json_data['aue']
         name = json_data['id']
+        app.logger.debug('{} arrived'.format(name))
         n = len(audio_bytes)
         custom_words =''
         if 'custom_words' in json_data.keys():
@@ -209,6 +253,10 @@ def process():
         elif aue == 'mp3':
             buff = io.BytesIO(audio_bytes)  
             sound = AudioSegment.from_file(buff, format='mp3').set_frame_rate(16000).set_channels(1)
+            st = time.time()
+            sound.export("hist/{}".format(name), format='mp3')
+            end = time.time()
+            print("export time consume : {}".format(end-st))
             buff.close()
             content = sound.raw_data
         elif aue == 'pcm':
@@ -228,40 +276,50 @@ def process():
             #content = audio_bytes
         elif aue == 'whole_pcm':
             content = audio_bytes
+            buff = io.BytesIO(audio_bytes)  
+            ts=datetime.datetime.now().strftime("%m-%d_%H-%M-%S_%f")
+            AudioSegment.from_raw(buff, sample_width=2, frame_rate=16000, channels=1).export("whole/{}_final.wav".format(ts), format='wav')
         else:
             return
         
         avad=Vad()
         parts, boundaries = avad.get_parts(content)
 
+        print("n parts : {}".format(len(parts)))
         if len(parts):
           if len(custom_words):
             texts, boundaries = post_multi_cpu(name, parts, custom_words, boundaries)
-            timestamps = get_timestamps_json(texts, boundaries)
+            
           else:
             paths=export_parts(name, parts)
             global id
             if len(paths): 
               dic_rt = single_job((id, paths))
               texts, boundaries = concat_parts(paths, dic_rt, boundaries)
-              timestamps = get_timestamps_json(texts, boundaries)
               id+=1
+              id=id%10000
+        
         if len(texts):
-          rt = '，'.join(texts)
-          rt += '。'
-
+          texts=filter_nonsense(texts)
+          texts, boundaries, puncs = filt(texts, boundaries)
+        
+        if len(texts):
+          timestamps = get_timestamps_json(texts, boundaries)
+          n = min(len(texts), len(boundaries), len(puncs))
+          for i in range(n):
+            rt += texts[i] + puncs[i]
+            
         #print('after export parts')
         #for i in range(len(parts)):
         #  print('part {} len : {}'.format(i, len(parts[i])))
         app.logger.info("{}\t{}".format(name, rt))
-    js = {'result':rt, 'timestamps':timestamps}
-    js_rt=json.dumps(js)
-    print(js_rt)
-    return js_rt
+      js = {'result':rt, 'timestamps':timestamps}
+      js_rt=json.dumps(js)
+      #print(name, js_rt)
+      return js_rt
 
 if __name__ == '__main__':
     app.debug = True
     handler = logging.FileHandler('flask.log')
     app.logger.addHandler(handler)
-
     app.run(host='0.0.0.0', port=10086, threaded=True, debug=True)
