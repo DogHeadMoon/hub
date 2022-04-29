@@ -73,7 +73,6 @@ if __name__ == '__main__':
 
     #aue set to wav or mp3 or m4a
     #body = {'audioBase64': basee64_file, 'lang': 1, 'scene': 0, 'aue': 'wav', 'id': name}
-    #body = {'audioBase64': basee64_file, 'lang': 1, 'scene': 0, 'aue': 'wav', 'id': name, 'custom_words':'李长亮'}
     body = {'audioBase64': basee64_file, 'lang': 1, 'scene': 0, 'aue': 'wav', 'id': name}
 
     # 发起请求

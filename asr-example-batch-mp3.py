@@ -114,7 +114,6 @@ def test_one(path):
 
     #aue set to wav or mp3 or m4a
     #body = {'audioBase64': basee64_file, 'lang': 1, 'scene': 0, 'aue': 'wav', 'id': name}
-    #body = {'audioBase64': basee64_file, 'lang': 1, 'scene': 0, 'aue': 'wav', 'id': name, 'custom_words':'李长亮'}
     #body = {'audioBase64': basee64_file, 'lang': 1, 'scene': 0, 'aue': 'wav', 'id': name, 'custom_words':'蔚来汽车'}
     #body = {'audioBase64': basee64_file, 'lang': 1, 'scene': 0, 'aue': 'wav', 'id': name}
     body = {'audioBase64': basee64_file, 'lang': 1, 'scene': 0, 'aue': 'mp3', 'id': name, 'custom_words':'丽泽商城|欧伯|孔令款|三弦|孔楼村|捕蛇者说|张育良|枉凝眉|郭嘉|临江'}
